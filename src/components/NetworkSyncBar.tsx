@@ -4,9 +4,9 @@ import {
   WifiOff,
   RefreshCw,
   Database,
-  CloudCheck,
   SlidersHorizontal,
   MapPin,
+  Settings,
 } from 'lucide-react';
 import {
   isEffectivelyOnline,
@@ -15,6 +15,7 @@ import {
   getTotalPendingCount,
   triggerBackgroundSync,
   isCurrentlySyncing,
+  getFarmSettings,
   subscribeToStorage,
 } from '../services/storage.ts';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
@@ -22,16 +23,19 @@ import { PWAInstallButton } from './PWAInstallButton.tsx';
 interface NetworkSyncBarProps {
   onOpenSyncModal: () => void;
   onOpenQuickAction: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const NetworkSyncBar: React.FC<NetworkSyncBarProps> = ({
   onOpenSyncModal,
+  onOpenSettings,
 }) => {
   const [online, setOnline] = useState(isEffectivelyOnline());
   const [simulatedOffline, setSimOffline] = useState(getSimulatedOffline());
   const [pendingCount, setPendingCount] = useState(getTotalPendingCount());
   const [syncing, setSyncing] = useState(isCurrentlySyncing());
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [settings, setSettings] = useState(getFarmSettings());
 
   useEffect(() => {
     const update = () => {
@@ -39,6 +43,7 @@ export const NetworkSyncBar: React.FC<NetworkSyncBarProps> = ({
       setSimOffline(getSimulatedOffline());
       setPendingCount(getTotalPendingCount());
       setSyncing(isCurrentlySyncing());
+      setSettings(getFarmSettings());
     };
 
     update();
@@ -97,7 +102,7 @@ export const NetworkSyncBar: React.FC<NetworkSyncBarProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-sm sm:text-base text-white tracking-tight truncate">
-                  Legal Chicks Farm
+                  {settings.farmName}
                 </span>
                 <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                   PHP
@@ -105,13 +110,13 @@ export const NetworkSyncBar: React.FC<NetworkSyncBarProps> = ({
               </div>
               <div className="flex items-center gap-1 text-[11px] text-emerald-300/80 truncate">
                 <MapPin className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span className="truncate">Centro Solana, Cagayan</span>
+                <span className="truncate">{settings.location}</span>
               </div>
             </div>
           </div>
 
           {/* Network & Sync Control Hub */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Live Connection & Offline Simulator Toggle */}
             <div className="flex items-center bg-emerald-900/60 border border-emerald-700/60 rounded-lg p-1 gap-1">
               <div
@@ -193,20 +198,32 @@ export const NetworkSyncBar: React.FC<NetworkSyncBarProps> = ({
               <Database className="w-4 h-4" />
             </button>
 
+            {/* Settings & Reset to 0 Button */}
+            {onOpenSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="p-1.5 text-amber-300 hover:text-white hover:bg-emerald-800/50 rounded-lg border border-amber-500/40 transition cursor-pointer"
+                title="Farm Settings & Reset to Start from 0"
+                aria-label="Open Farm Settings and Reset"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            )}
+
             {/* Install PWA Button */}
             <PWAInstallButton />
           </div>
         </div>
 
-        {/* Sync Toast Feedback Banner */}
+        {/* Transient Sync Feedback Banner */}
         {syncFeedback && (
-          <div className="py-1 px-3 mb-1.5 rounded bg-emerald-900/90 border border-emerald-600/60 text-xs text-emerald-100 flex items-center justify-between animate-fadeIn">
+          <div className="py-1.5 px-3 mb-2 rounded-lg bg-emerald-900/90 border border-emerald-600/50 text-xs text-emerald-100 flex items-center justify-between animate-fadeIn">
             <span>{syncFeedback}</span>
             <button
               onClick={() => setSyncFeedback(null)}
-              className="text-emerald-300 hover:text-white ml-2 text-xs font-mono"
+              className="text-emerald-300 hover:text-white ml-2 font-bold"
             >
-              ×
+              ✕
             </button>
           </div>
         )}

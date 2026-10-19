@@ -307,7 +307,8 @@ export const transactionsTable = new Table<FinanceTransaction>(STORAGE_KEYS.TRAN
 
 // Settings getter/setter
 export function getFarmSettings(): FarmAppSettings {
-  return loadFromStorage<FarmAppSettings>(STORAGE_KEYS.SETTINGS, initialSettings);
+  const loaded = loadFromStorage<Partial<FarmAppSettings>>(STORAGE_KEYS.SETTINGS, initialSettings);
+  return { ...initialSettings, ...loaded };
 }
 
 export function updateFarmSettings(settings: Partial<FarmAppSettings>): FarmAppSettings {
@@ -316,6 +317,12 @@ export function updateFarmSettings(settings: Partial<FarmAppSettings>): FarmAppS
   saveToStorage(STORAGE_KEYS.SETTINGS, updated);
   notifySubscribers();
   return updated;
+}
+
+export function resetSettingsToDefault(): FarmAppSettings {
+  saveToStorage(STORAGE_KEYS.SETTINGS, initialSettings);
+  notifySubscribers();
+  return initialSettings;
 }
 
 // Sync Logs
@@ -396,8 +403,12 @@ export async function triggerBackgroundSync(): Promise<{ success: boolean; recor
     const pendingTotal = getTotalPendingCount();
     const settings = getFarmSettings();
 
-    // If Webhook URL is specified and not localhost/placeholder, we can attempt a POST
-    if (settings.webhookUrl && settings.webhookUrl.startsWith('http')) {
+    // If Webhook URL is specified and not placeholder, attempt a POST
+    if (
+      settings.webhookUrl &&
+      settings.webhookUrl.startsWith('http') &&
+      !settings.webhookUrl.includes('legalchicksfarm.ph')
+    ) {
       const payload = {
         farm: settings.farmName,
         location: settings.location,
@@ -586,5 +597,118 @@ export function importBackupJson(jsonString: string): { success: boolean; messag
   }
 }
 
+// Reset All Farm Records to Start from 0
+export function resetAllRecordsToZero(keepStructure: boolean = true): void {
+  const now = new Date().toISOString();
+  if (keepStructure) {
+    // Keep pens and ingredient names, but set all bird counts and stock kg to 0
+    const zeroedPens = pensTable.getAll().map(p => ({
+      ...p,
+      hensCount: 0,
+      roostersCount: 0,
+      updatedAt: now,
+      syncStatus: isEffectivelyOnline() ? ('synced' as const) : ('pending_update' as const),
+    }));
+    const zeroedIngredients = feedIngredientsTable.getAll().map(f => ({
+      ...f,
+      stockKg: 0,
+      updatedAt: now,
+      syncStatus: isEffectivelyOnline() ? ('synced' as const) : ('pending_update' as const),
+    }));
+    pensTable.replaceAll(zeroedPens);
+    feedIngredientsTable.replaceAll(zeroedIngredients);
+  } else {
+    pensTable.replaceAll([]);
+    feedIngredientsTable.replaceAll([]);
+  }
+
+  eggLogsTable.replaceAll([]);
+  incubationTable.replaceAll([]);
+  pelletLogsTable.replaceAll([]);
+  ordersTable.replaceAll([]);
+  transactionsTable.replaceAll([]);
+
+  addSyncLog({
+    type: 'system_reset',
+    status: 'success',
+    recordsAffected: 0,
+    details: keepStructure
+      ? 'All logs, orders, batches, and ledger cleared to 0; pen bird counts and feed stock zeroed out.'
+      : 'Complete factory wipe: all pens, ingredients, logs, batches, orders, and ledger reset to 0.',
+  });
+
+  notifySubscribers();
+}
+
+// Granular Module Reset to 0
+export function resetModuleToZero(
+  moduleName: 'pens' | 'eggLogs' | 'incubation' | 'feed' | 'orders' | 'finance'
+): void {
+  const now = new Date().toISOString();
+  if (moduleName === 'pens') {
+    const zeroedPens = pensTable.getAll().map(p => ({
+      ...p,
+      hensCount: 0,
+      roostersCount: 0,
+      updatedAt: now,
+    }));
+    pensTable.replaceAll(zeroedPens);
+  } else if (moduleName === 'eggLogs') {
+    eggLogsTable.replaceAll([]);
+  } else if (moduleName === 'incubation') {
+    incubationTable.replaceAll([]);
+  } else if (moduleName === 'feed') {
+    const zeroedIngredients = feedIngredientsTable.getAll().map(f => ({
+      ...f,
+      stockKg: 0,
+      updatedAt: now,
+    }));
+    feedIngredientsTable.replaceAll(zeroedIngredients);
+    pelletLogsTable.replaceAll([]);
+  } else if (moduleName === 'orders') {
+    ordersTable.replaceAll([]);
+  } else if (moduleName === 'finance') {
+    transactionsTable.replaceAll([]);
+  }
+
+  addSyncLog({
+    type: 'system_reset',
+    status: 'success',
+    recordsAffected: 0,
+    details: `Module "${moduleName}" reset to 0.`,
+  });
+
+  notifySubscribers();
+}
+
+// Restore Sample Demo Data
+export function restoreSampleDemoData(): void {
+  updateFarmSettings({ startInputsFromZero: false });
+  pensTable.replaceAll(initialPens);
+  eggLogsTable.replaceAll(initialEggLogs);
+  incubationTable.replaceAll(initialIncubationBatches);
+  feedIngredientsTable.replaceAll(initialFeedIngredients);
+  pelletLogsTable.replaceAll(initialPelletLogs);
+  ordersTable.replaceAll(initialOrders);
+  transactionsTable.replaceAll(initialTransactions);
+
+  addSyncLog({
+    type: 'import_backup',
+    status: 'success',
+    recordsAffected:
+      initialPens.length +
+      initialEggLogs.length +
+      initialIncubationBatches.length +
+      initialFeedIngredients.length +
+      initialPelletLogs.length +
+      initialOrders.length +
+      initialTransactions.length,
+    details: 'Sample farm dataset for Legal Chicks Farm (Solana, Cagayan) restored.',
+  });
+
+  notifySubscribers();
+}
+
 // Initialize on module load
 initDatabase();
+

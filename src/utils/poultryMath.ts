@@ -130,7 +130,8 @@ export function calculateFertilityAndHatchability(
 export function calculateBulkEggPrice(
   breed: PoultryBreed,
   quantity: number,
-  customBasePrice?: number
+  customBasePrice?: number,
+  customDiscounts?: { tier30: number; tier60: number; tier100: number }
 ): {
   unitBasePricePhp: number;
   subtotalPhp: number;
@@ -147,18 +148,22 @@ export function calculateBulkEggPrice(
   const qty = Math.max(0, quantity);
   const subtotalPhp = qty * unitBasePricePhp;
 
+  const d30 = customDiscounts?.tier30 ?? 5;
+  const d60 = customDiscounts?.tier60 ?? 10;
+  const d100 = customDiscounts?.tier100 ?? 15;
+
   let bulkDiscountPercent = 0;
   let tierName = 'Retail (1-29 eggs)';
 
   if (qty >= 100) {
-    bulkDiscountPercent = 15;
-    tierName = 'Commercial Tier (100+ eggs, 15% off)';
+    bulkDiscountPercent = d100;
+    tierName = `Commercial Tier (100+ eggs, ${d100}% off)`;
   } else if (qty >= 60) {
-    bulkDiscountPercent = 10;
-    tierName = 'Breeder Tier (60-99 eggs, 10% off)';
+    bulkDiscountPercent = d60;
+    tierName = `Breeder Tier (60-99 eggs, ${d60}% off)`;
   } else if (qty >= 30) {
-    bulkDiscountPercent = 5;
-    tierName = 'Farmer Starter (30-59 eggs, 5% off)';
+    bulkDiscountPercent = d30;
+    tierName = `Farmer Starter (30-59 eggs, ${d30}% off)`;
   }
 
   const discountAmountPhp = Math.round((subtotalPhp * (bulkDiscountPercent / 100)) * 100) / 100;
@@ -175,31 +180,66 @@ export function calculateBulkEggPrice(
 }
 
 /**
- * Calculates raw ingredient deductions and cost per kg for a custom pellet batch
+ * Returns default Crude Protein (CP %) for standard poultry feed ingredients
+ */
+export function getDefaultCrudeProteinPercent(name: string, category?: string): number {
+  const lower = name.toLowerCase();
+  if (lower.includes('fish')) return 55.0;
+  if (lower.includes('soy')) return 46.0;
+  if (lower.includes('premix') || lower.includes('concentrate')) return 38.0;
+  if (lower.includes('azolla')) return 25.0;
+  if (lower.includes('copra')) return 21.0;
+  if (lower.includes('bran') || lower.includes('darak')) return 12.5;
+  if (lower.includes('corn')) return 8.8;
+  if (lower.includes('molasses')) return 3.2;
+
+  if (category === 'Forage/Protein') return 24.0;
+  if (category === 'By-Product') return 15.0;
+  if (category === 'Grain') return 9.5;
+  if (category === 'Binder') return 3.0;
+  if (category === 'Mineral/Vitamin') return 0.0;
+  return 12.0;
+}
+
+/**
+ * Calculates raw ingredient deductions, cost per kg, and weighted Crude Protein (CP %)
+ * for a custom pellet batch using only the chosen ingredients (kgUsed > 0).
  */
 export interface PelletIngredientInput {
   ingredientId: string;
   name: string;
   kgUsed: number;
   unitCostPhp: number;
+  crudeProteinPercent?: number;
 }
 
 export function calculatePelletBatchCost(ingredients: PelletIngredientInput[]) {
   let totalKg = 0;
   let totalCostPhp = 0;
+  let totalProteinKg = 0;
 
   for (const item of ingredients) {
+    if (item.kgUsed <= 0) continue;
     const cost = item.kgUsed * item.unitCostPhp;
+    const cpPercent =
+      item.crudeProteinPercent !== undefined
+        ? item.crudeProteinPercent
+        : getDefaultCrudeProteinPercent(item.name);
     totalKg += item.kgUsed;
     totalCostPhp += cost;
+    totalProteinKg += item.kgUsed * (cpPercent / 100);
   }
 
   const costPerKgPhp = totalKg > 0 ? Math.round((totalCostPhp / totalKg) * 100) / 100 : 0;
+  const crudeProteinPercent =
+    totalKg > 0 ? Math.round(((totalProteinKg / totalKg) * 100) * 100) / 100 : 0;
 
   return {
     totalKgProduced: Math.round(totalKg * 100) / 100,
     totalBatchCostPhp: Math.round(totalCostPhp * 100) / 100,
     costPerKgPhp,
+    crudeProteinPercent,
+    totalCrudeProteinKg: Math.round(totalProteinKg * 100) / 100,
   };
 }
 
@@ -218,9 +258,17 @@ export function formatPhp(amount: number): string {
 /**
  * Generates ready-to-paste Facebook Messenger receipt
  */
-export function generateMessengerReceipt(order: FertileEggOrder, gcashNumber: string = '0917-123-4567'): string {
-  return `🐔 LEGAL CHICKS POULTRY FARM
-📍 Centro Solana, Cagayan Valley, Philippines
+export function generateMessengerReceipt(
+  order: FertileEggOrder,
+  gcashNumber: string = '0917-123-4567',
+  farmMeta?: { farmName?: string; location?: string; gcashAccountName?: string }
+): string {
+  const farmTitle = (farmMeta?.farmName || 'LEGAL CHICKS POULTRY FARM').toUpperCase();
+  const farmLoc = farmMeta?.location || 'Centro Solana, Cagayan Valley, Philippines';
+  const gcashAcct = farmMeta?.gcashAccountName || 'Legal Chicks Farm';
+
+  return `🐔 ${farmTitle}
+📍 ${farmLoc}
 ━━━━━━━━━━━━━━━━━━━━━
 📋 ORDER CONFIRMATION
 Order ID: ${order.orderNumber}
@@ -240,8 +288,9 @@ Status: ${order.status.toUpperCase()}
 Target Dispatch: ${order.targetDispatchDate}
 
 💳 PAYMENT OPTIONS:
-• GCash: ${gcashNumber} (Legal Chicks Farm)
-• Pickup / COD available at Farm Gate, Centro Solana
+• GCash: ${gcashNumber} (${gcashAcct})
+• Pickup / COD available at Farm Gate, ${farmLoc}
 
 ✨ Salamat po sa pagtangkilik sa purong lahi! Note: All fertile eggs are sanitized, candled before dispatch, and collected from active breeding pens with 1:5 rooster-to-hen ratio.`;
 }
+

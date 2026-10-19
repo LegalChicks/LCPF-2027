@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Bird,
   Egg,
@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Flame,
   Plus,
+  Settings,
 } from 'lucide-react';
 import {
   pensTable,
@@ -20,6 +21,8 @@ import {
   ordersTable,
   transactionsTable,
   feedIngredientsTable,
+  getFarmSettings,
+  subscribeToStorage,
 } from '../services/storage.ts';
 import {
   calculateLayingRate,
@@ -36,12 +39,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
   onOpenQuickAction,
 }) => {
-  const pens = pensTable.getAll();
-  const eggLogs = eggLogsTable.getAll();
-  const batches = incubationTable.getAll();
-  const orders = ordersTable.getAll();
-  const transactions = transactionsTable.getAll();
-  const feedIngredients = feedIngredientsTable.getAll();
+  const [pens, setPens] = useState(pensTable.getAll());
+  const [eggLogs, setEggLogs] = useState(eggLogsTable.getAll());
+  const [batches, setBatches] = useState(incubationTable.getAll());
+  const [orders, setOrders] = useState(ordersTable.getAll());
+  const [transactions, setTransactions] = useState(transactionsTable.getAll());
+  const [feedIngredients, setFeedIngredients] = useState(feedIngredientsTable.getAll());
+  const [settings, setSettings] = useState(getFarmSettings());
+
+  useEffect(() => {
+    const syncState = () => {
+      setPens(pensTable.getAll());
+      setEggLogs(eggLogsTable.getAll());
+      setBatches(incubationTable.getAll());
+      setOrders(ordersTable.getAll());
+      setTransactions(transactionsTable.getAll());
+      setFeedIngredients(feedIngredientsTable.getAll());
+      setSettings(getFarmSettings());
+    };
+    syncState();
+    return subscribeToStorage(syncState);
+  }, []);
 
   // 1. Total Active Birds
   const rirHens = pens
@@ -61,19 +79,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const totalHens = rirHens + baHens;
   const totalBirds = totalHens + rirRoosters + baRoosters;
 
-  // 2. Today's Egg Collection & Laying Rate %
+  // 2. Today's (or Latest Harvest Day's) Egg Collection & Laying Rate %
   const todayStr = new Date().toISOString().split('T')[0];
-  const todayLogs = eggLogs.filter((l) => l.date === todayStr);
-  const todayEggsTotal = todayLogs.reduce((sum, l) => sum + l.totalEggs, 0);
-  const todayFertile = todayLogs.reduce((sum, l) => sum + l.fertileEggs, 0);
-  const todayTable = todayLogs.reduce((sum, l) => sum + l.tableEggs, 0);
-  const todayRejects = todayLogs.reduce((sum, l) => sum + l.rejects, 0);
+  const latestDateStr = eggLogs.length > 0 ? eggLogs[0].date : todayStr;
+  const activeDayLogs = eggLogs.filter((l) => l.date === todayStr).length > 0
+    ? eggLogs.filter((l) => l.date === todayStr)
+    : eggLogs.filter((l) => l.date === latestDateStr);
 
-  const hensForHarvest = todayLogs.length > 0
-    ? todayLogs.reduce((sum, l) => sum + l.activeHensOnDate, 0)
-    : (eggLogs[0]?.activeHensOnDate || 110);
-  const eggsForHarvest = todayEggsTotal > 0 ? todayEggsTotal : (eggLogs[0]?.totalEggs || 92);
-  const overallLayingRate = calculateLayingRate(eggsForHarvest, hensForHarvest);
+  const todayEggsTotal = activeDayLogs.reduce((sum, l) => sum + l.totalEggs, 0);
+  const todayFertile = activeDayLogs.reduce((sum, l) => sum + l.fertileEggs, 0);
+  const todayTable = activeDayLogs.reduce((sum, l) => sum + l.tableEggs, 0);
+
+  const hensForHarvest = activeDayLogs.reduce((sum, l) => sum + l.activeHensOnDate, 0);
+  const overallLayingRate = activeDayLogs.length > 0
+    ? calculateLayingRate(todayEggsTotal, hensForHarvest)
+    : 0;
+
+  // Breed-specific laying rates
+  const rirLogs = eggLogs.filter((l) => l.breed === 'Rhode Island Red');
+  const rirAvgRate = rirLogs.length > 0
+    ? Math.round((rirLogs.reduce((s, l) => s + l.layingRatePercent, 0) / rirLogs.length) * 10) / 10
+    : 0;
+  const rirRatio = rirRoosters > 0 ? (rirHens / rirRoosters).toFixed(1) : '0';
+
+  const baLogs = eggLogs.filter((l) => l.breed === 'Black Australorp');
+  const baAvgRate = baLogs.length > 0
+    ? Math.round((baLogs.reduce((s, l) => s + l.layingRatePercent, 0) / baLogs.length) * 10) / 10
+    : 0;
+  const baRatio = baRoosters > 0 ? (baHens / baRoosters).toFixed(1) : '0';
 
   // 3. Active Incubator Batches approaching Day 18/21
   const activeBatches = batches.filter((b) => b.status !== 'Completed' && b.status !== 'Archived');
@@ -95,8 +128,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     .reduce((sum, t) => sum + t.amountPhp, 0);
   const netProfit = totalIncome - totalExpenses;
 
-  // 6. Low Feed Stock Alerts (< 35kg)
-  const lowFeedItems = feedIngredients.filter((f) => f.stockKg <= f.reorderLevelKg);
+  // 6. Low Feed Stock Alerts
+  const lowFeedItems = feedIngredients.filter(
+    (f) => f.stockKg <= Math.max(f.reorderLevelKg, settings.lowStockThresholdKg)
+  );
+  const cornStock = feedIngredients.find((f) => f.name.toLowerCase().includes('corn'))?.stockKg ?? 0;
+  const darakStock =
+    feedIngredients.find((f) => f.name.toLowerCase().includes('bran') || f.name.toLowerCase().includes('darak'))
+      ?.stockKg ?? 0;
 
   return (
     <div className="space-y-5 animate-fadeIn">
@@ -110,10 +149,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span>Offline-First Command Center • Cagayan Valley</span>
             </div>
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight">
-              Legal Chicks Poultry Farm
+              {settings.farmName}
             </h1>
             <p className="text-xs sm:text-sm text-emerald-200/90 mt-1 max-w-xl">
-              Centro Solana, Cagayan • Purebred Rhode Island Reds & Black Australorps breeding station, on-site feed pelletizing, and automated 21-day incubation management.
+              {settings.location} • Purebred Rhode Island Reds & Black Australorps breeding station, on-site feed pelletizing, and automated 21-day incubation management.
             </p>
           </div>
 
@@ -126,11 +165,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span>Quick Coop Log</span>
             </button>
             <button
-              onClick={() => onNavigate('incubator')}
-              className="px-4 py-2.5 bg-emerald-800/80 hover:bg-emerald-700 border border-emerald-600/50 text-white font-semibold rounded-xl text-xs sm:text-sm flex items-center gap-1.5 transition cursor-pointer"
+              onClick={() => onNavigate('settings')}
+              className="px-3.5 py-2.5 bg-emerald-800/80 hover:bg-emerald-700 border border-emerald-600/50 text-white font-semibold rounded-xl text-xs sm:text-sm flex items-center gap-1.5 transition cursor-pointer"
             >
-              <span>Hatchery</span>
-              <ChevronRight className="w-4 h-4 text-emerald-300" />
+              <Settings className="w-4 h-4 text-amber-300" />
+              <span>Settings / Reset to 0</span>
             </button>
           </div>
         </div>
@@ -212,15 +251,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-extrabold text-white">
-              {todayEggsTotal > 0 ? todayEggsTotal : 208}
+              {todayEggsTotal}
             </span>
             <span className="text-xs text-amber-400 font-bold">
               {overallLayingRate}% Laying
             </span>
           </div>
           <div className="mt-2 text-[11px] text-zinc-400 border-t border-zinc-800/80 pt-2 flex justify-between">
-            <span>🥚 Fertile: <strong>{todayFertile > 0 ? todayFertile : 172}</strong></span>
-            <span>🍳 Table: <strong>{todayTable > 0 ? todayTable : 30}</strong></span>
+            <span>🥚 Fertile: <strong>{todayFertile}</strong></span>
+            <span>🍳 Table: <strong>{todayTable}</strong></span>
           </div>
         </div>
 
@@ -241,7 +280,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="mt-2 text-[11px] text-zinc-400 border-t border-zinc-800/80 pt-2 flex justify-between">
             <span>Eggs Setting: <strong>{activeBatches.reduce((s, b) => s + b.eggsSetCount, 0)} pcs</strong></span>
-            <span className="text-amber-400 font-semibold">Day 18 Lockdown!</span>
+            <span className="text-amber-400 font-semibold">
+              {criticalBatches.some((b) => b.state.isLockdown) ? 'Day 18 Lockdown!' : activeBatches.length > 0 ? 'Active' : 'Idle'}
+            </span>
           </div>
         </div>
 
@@ -262,7 +303,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="mt-2 text-[11px] text-zinc-400 border-t border-zinc-800/80 pt-2 flex justify-between">
             <span>Tuguegarao & Solana clients</span>
-            <span className="text-emerald-400 font-medium">Ready to dispatch</span>
+            <span className="text-emerald-400 font-medium">
+              {pendingOrders.length > 0 ? 'Ready to dispatch' : 'No pending orders'}
+            </span>
           </div>
         </div>
 
@@ -306,7 +349,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span className="text-xs text-amber-300 font-medium">kg raw materials</span>
           </div>
           <div className="mt-2 text-[11px] text-zinc-400 border-t border-zinc-800/80 pt-2 flex justify-between">
-            <span>Corn: 420kg • Darak: 310kg</span>
+            <span>Corn: {cornStock}kg • Darak: {darakStock}kg</span>
             <span className="text-emerald-400">Pelletizer ready</span>
           </div>
         </div>
@@ -333,42 +376,48 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="space-y-2.5">
-            {activeBatches.map((batch) => {
-              const state = getIncubationCurrentState(batch.dateSet, todayStr);
-              return (
-                <div
-                  key={batch.id}
-                  className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-white font-mono">{batch.batchCode}</span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        batch.breed === 'Rhode Island Red'
-                          ? 'bg-red-950 text-red-300 border border-red-800'
-                          : 'bg-zinc-800 text-zinc-200 border border-zinc-700'
-                      }`}>
-                        {batch.breed}
-                      </span>
-                      <span className="text-zinc-400">({batch.eggsSetCount} eggs)</span>
+            {activeBatches.length === 0 ? (
+              <div className="p-6 text-center rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-500">
+                0 active incubator batches. Click "Manage All" to set a new 21-day batch.
+              </div>
+            ) : (
+              activeBatches.map((batch) => {
+                const state = getIncubationCurrentState(batch.dateSet, todayStr);
+                return (
+                  <div
+                    key={batch.id}
+                    className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white font-mono">{batch.batchCode}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          batch.breed === 'Rhode Island Red'
+                            ? 'bg-red-950 text-red-300 border border-red-800'
+                            : 'bg-zinc-800 text-zinc-200 border border-zinc-700'
+                        }`}>
+                          {batch.breed}
+                        </span>
+                        <span className="text-zinc-400">({batch.eggsSetCount} eggs)</span>
+                      </div>
+                      <p className="text-zinc-400 text-[11px] mt-1">
+                        Set: <strong>{batch.dateSet}</strong> • Expected Hatch: <strong className="text-amber-400">{batch.day21HatchDate}</strong>
+                      </p>
                     </div>
-                    <p className="text-zinc-400 text-[11px] mt-1">
-                      Set: <strong>{batch.dateSet}</strong> • Expected Hatch: <strong className="text-amber-400">{batch.day21HatchDate}</strong>
-                    </p>
-                  </div>
 
-                  <div className="text-right sm:text-right shrink-0">
-                    <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
-                      state.isLockdown
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
-                        : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                    }`}>
-                      {state.statusText}
-                    </span>
+                    <div className="text-right sm:text-right shrink-0">
+                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
+                        state.isLockdown
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                          : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                      }`}>
+                        {state.statusText}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -396,17 +445,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <span className="w-3 h-3 rounded-full bg-red-600 inline-block" />
                   <strong className="text-white text-sm">Rhode Island Red (RIR)</strong>
                 </div>
-                <span className="text-amber-400 font-bold font-mono">310 Hens • 60 Roosters</span>
+                <span className="text-amber-400 font-bold font-mono">{rirHens} Hens • {rirRoosters} Roosters</span>
               </div>
               <p className="text-zinc-400 text-[11px] leading-relaxed mb-2">
                 Heavy egg production breed acclimated to Cagayan Valley humidity. Standard layer diet + Azolla produces dark brown, thick-shelled hatching eggs.
               </p>
               <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
-                <div className="bg-gradient-to-r from-red-600 to-amber-500 h-2 rounded-full" style={{ width: '84%' }} />
+                <div
+                  className="bg-gradient-to-r from-red-600 to-amber-500 h-2 rounded-full transition-all"
+                  style={{ width: `${Math.min(100, rirAvgRate)}%` }}
+                />
               </div>
               <div className="flex justify-between text-[10px] text-zinc-400 mt-1">
-                <span>Avg Laying Rate: 84.2%</span>
-                <span className="text-emerald-400">Breeding Ratio 1:5.1</span>
+                <span>Avg Laying Rate: {rirAvgRate}%</span>
+                <span className="text-emerald-400">Breeding Ratio 1:{rirRatio}</span>
               </div>
             </div>
 
@@ -417,17 +469,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <span className="w-3 h-3 rounded-full bg-zinc-400 inline-block" />
                   <strong className="text-white text-sm">Black Australorp (Heritage)</strong>
                 </div>
-                <span className="text-amber-400 font-bold font-mono">58 Hens • 11 Roosters</span>
+                <span className="text-amber-400 font-bold font-mono">{baHens} Hens • {baRoosters} Roosters</span>
               </div>
               <p className="text-zinc-400 text-[11px] leading-relaxed mb-2">
                 World record egg layer pedigree. Hardy dual-purpose line with iridescent green plumage and docile foraging behavior.
               </p>
               <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
-                <div className="bg-gradient-to-r from-zinc-500 to-emerald-400 h-2 rounded-full" style={{ width: '82%' }} />
+                <div
+                  className="bg-gradient-to-r from-zinc-500 to-emerald-400 h-2 rounded-full transition-all"
+                  style={{ width: `${Math.min(100, baAvgRate)}%` }}
+                />
               </div>
               <div className="flex justify-between text-[10px] text-zinc-400 mt-1">
-                <span>Avg Laying Rate: 82.8%</span>
-                <span className="text-emerald-400">Breeding Ratio 1:5.2</span>
+                <span>Avg Laying Rate: {baAvgRate}%</span>
+                <span className="text-emerald-400">Breeding Ratio 1:{baRatio}</span>
               </div>
             </div>
           </div>

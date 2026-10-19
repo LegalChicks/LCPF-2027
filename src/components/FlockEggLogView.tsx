@@ -1,21 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Bird,
   Egg,
   Plus,
   Trash2,
-  Edit2,
   Download,
   Search,
-  Filter,
   CheckCircle,
-  AlertTriangle,
-  HeartPulse,
+  RotateCcw,
 } from 'lucide-react';
 import {
   pensTable,
   eggLogsTable,
   exportTableToCsv,
+  getFarmSettings,
+  resetModuleToZero,
+  subscribeToStorage,
 } from '../services/storage.ts';
 import {
   calculateLayingRate,
@@ -23,17 +23,18 @@ import {
 import type { PenFlock, DailyEggLog, PoultryBreed } from '../types/index.ts';
 
 export const FlockEggLogView: React.FC = () => {
+  const settings = getFarmSettings();
   const [pens, setPens] = useState<PenFlock[]>(pensTable.getAll());
   const [logs, setLogs] = useState<DailyEggLog[]>(eggLogsTable.getAll());
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBreed, setFilterBreed] = useState<'All' | PoultryBreed>('All');
-  
+
   // New Pen Modal State
   const [isPenModalOpen, setIsPenModalOpen] = useState(false);
   const [penCode, setPenCode] = useState('');
   const [penBreed, setPenBreed] = useState<PoultryBreed>('Rhode Island Red');
-  const [roostersCount, setRoostersCount] = useState<number>(10);
-  const [hensCount, setHensCount] = useState<number>(50);
+  const [roostersCount, setRoostersCount] = useState<number>(settings.startInputsFromZero ? 0 : 10);
+  const [hensCount, setHensCount] = useState<number>(settings.startInputsFromZero ? 0 : 50);
   const [housingType, setHousingType] = useState<'Deep Litter' | 'Free Range Pasture' | 'Breeding Pen'>('Free Range Pasture');
   const [penNotes, setPenNotes] = useState('');
 
@@ -41,18 +42,71 @@ export const FlockEggLogView: React.FC = () => {
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [selectedPenId, setSelectedPenId] = useState(pens[0]?.id || '');
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
-  const [fertileEggs, setFertileEggs] = useState<number>(45);
-  const [tableEggs, setTableEggs] = useState<number>(8);
-  const [rejects, setRejects] = useState<number>(1);
+  const [fertileEggs, setFertileEggs] = useState<number>(settings.startInputsFromZero ? 0 : 45);
+  const [tableEggs, setTableEggs] = useState<number>(settings.startInputsFromZero ? 0 : 8);
+  const [rejects, setRejects] = useState<number>(0);
   const [mortalityHens, setMortalityHens] = useState<number>(0);
   const [mortalityRoosters, setMortalityRoosters] = useState<number>(0);
-  const [vitamins, setVitamins] = useState('Electrolytes in morning water + Azolla forage');
+  const [vitamins, setVitamins] = useState(settings.startInputsFromZero ? '' : 'Electrolytes in morning water + Azolla forage');
   const [logNotes, setLogNotes] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    const syncData = () => {
+      const latestPens = pensTable.getAll();
+      setPens(latestPens);
+      setLogs(eggLogsTable.getAll());
+      if (latestPens.length > 0 && !latestPens.some((p) => p.id === selectedPenId)) {
+        setSelectedPenId(latestPens[0].id);
+      }
+    };
+    syncData();
+    return subscribeToStorage(syncData);
+  }, [selectedPenId]);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const handleOpenPenModal = () => {
+    const s = getFarmSettings();
+    setPenCode('');
+    setPenNotes('');
+    setHensCount(s.startInputsFromZero ? 0 : 50);
+    setRoostersCount(s.startInputsFromZero ? 0 : 10);
+    setIsPenModalOpen(true);
+  };
+
+  const handleResetPenFormToZero = () => {
+    setPenCode('');
+    setHensCount(0);
+    setRoostersCount(0);
+    setPenNotes('');
+  };
+
+  const handleOpenLogModal = () => {
+    const s = getFarmSettings();
+    const currentPens = pensTable.getAll();
+    setSelectedPenId(currentPens[0]?.id || '');
+    setFertileEggs(s.startInputsFromZero ? 0 : 45);
+    setTableEggs(s.startInputsFromZero ? 0 : 8);
+    setRejects(0);
+    setMortalityHens(0);
+    setMortalityRoosters(0);
+    setVitamins(s.startInputsFromZero ? '' : 'Electrolytes in morning water + Azolla forage');
+    setLogNotes('');
+    setIsLogModalOpen(true);
+  };
+
+  const handleResetLogFormToZero = () => {
+    setFertileEggs(0);
+    setTableEggs(0);
+    setRejects(0);
+    setMortalityHens(0);
+    setMortalityRoosters(0);
+    setVitamins('');
+    setLogNotes('');
   };
 
   const handleCreatePen = (e: React.FormEvent) => {
@@ -62,8 +116,8 @@ export const FlockEggLogView: React.FC = () => {
     pensTable.create({
       penCode: penCode.trim(),
       breed: penBreed,
-      roostersCount: Number(roostersCount),
-      hensCount: Number(hensCount),
+      roostersCount: Math.max(0, Number(roostersCount)),
+      hensCount: Math.max(0, Number(hensCount)),
       housingType,
       notes: penNotes.trim(),
     });
@@ -72,15 +126,19 @@ export const FlockEggLogView: React.FC = () => {
     setIsPenModalOpen(false);
     setPenCode('');
     setPenNotes('');
-    showToast(`Pen ${penCode} created successfully!`);
+    showToast(`Pen ${penCode} saved!`);
   };
 
   const handleDeletePen = (id: string, code: string) => {
-    if (confirm(`Are you sure you want to delete ${code}?`)) {
-      pensTable.delete(id);
-      setPens(pensTable.getAll());
-      showToast(`Pen ${code} deleted.`);
-    }
+    pensTable.delete(id);
+    setPens(pensTable.getAll());
+    showToast(`Pen ${code} deleted.`);
+  };
+
+  const handleZeroSinglePen = (pen: PenFlock) => {
+    pensTable.update(pen.id, { hensCount: 0, roostersCount: 0 });
+    setPens(pensTable.getAll());
+    showToast(`${pen.penCode} bird counts reset to 0.`);
   };
 
   const handleCreateLog = (e: React.FormEvent) => {
@@ -121,11 +179,17 @@ export const FlockEggLogView: React.FC = () => {
   };
 
   const handleDeleteLog = (id: string) => {
-    if (confirm('Delete this egg harvest record?')) {
-      eggLogsTable.delete(id);
-      setLogs(eggLogsTable.getAll());
-      showToast('Record deleted.');
-    }
+    eggLogsTable.delete(id);
+    setLogs(eggLogsTable.getAll());
+    showToast('Record deleted.');
+  };
+
+  const handleZeroAllFlockAndLogs = () => {
+    resetModuleToZero('pens');
+    resetModuleToZero('eggLogs');
+    setPens(pensTable.getAll());
+    setLogs(eggLogsTable.getAll());
+    showToast('All pen bird counts and egg harvest logs reset to 0!');
   };
 
   const selectedPen = pens.find((p) => p.id === selectedPenId) || pens[0];
@@ -166,16 +230,24 @@ export const FlockEggLogView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setIsPenModalOpen(true)}
+            onClick={handleZeroAllFlockAndLogs}
+            className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-amber-300 text-xs font-semibold rounded-xl border border-amber-500/30 flex items-center gap-1.5 transition cursor-pointer"
+            title="Zero all bird counts and clear egg logs to start from 0"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Module to 0</span>
+          </button>
+          <button
+            onClick={handleOpenPenModal}
             className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-xl border border-zinc-700 flex items-center gap-1.5 transition cursor-pointer"
           >
             <Bird className="w-4 h-4 text-emerald-400" />
             <span>Add Pen</span>
           </button>
           <button
-            onClick={() => setIsLogModalOpen(true)}
+            onClick={handleOpenLogModal}
             className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-xs font-bold rounded-xl shadow flex items-center gap-1.5 transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -189,7 +261,7 @@ export const FlockEggLogView: React.FC = () => {
         {pens.map((pen) => {
           const penLogs = logs.filter((l) => l.penId === pen.id);
           const latestLog = penLogs[0];
-          const breedingRatio = (pen.hensCount / Math.max(1, pen.roostersCount)).toFixed(1);
+          const breedingRatio = pen.roostersCount > 0 ? (pen.hensCount / pen.roostersCount).toFixed(1) : '0';
 
           return (
             <div
@@ -199,13 +271,22 @@ export const FlockEggLogView: React.FC = () => {
               <div>
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-white text-sm tracking-tight">{pen.penCode}</span>
-                  <button
-                    onClick={() => handleDeletePen(pen.id, pen.penCode)}
-                    className="text-zinc-500 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                    title="Delete pen"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleZeroSinglePen(pen)}
+                      className="text-zinc-400 hover:text-amber-300 px-1.5 py-0.5 rounded bg-zinc-800/80 text-[10px] font-semibold transition cursor-pointer"
+                      title="Reset this pen's bird count to 0"
+                    >
+                      Zero
+                    </button>
+                    <button
+                      onClick={() => handleDeletePen(pen.id, pen.penCode)}
+                      className="text-zinc-500 hover:text-red-400 p-1 transition cursor-pointer"
+                      title="Delete pen"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1.5 mt-1">
@@ -240,7 +321,7 @@ export const FlockEggLogView: React.FC = () => {
                   Latest Harvest: {latestLog ? `${latestLog.totalEggs} eggs` : 'No logs yet'}
                 </span>
                 <span className="text-amber-400 font-bold">
-                  {latestLog ? `${latestLog.layingRatePercent}% Laying` : '—'}
+                  {latestLog ? `${latestLog.layingRatePercent}% Laying` : '0%'}
                 </span>
               </div>
             </div>
@@ -305,7 +386,7 @@ export const FlockEggLogView: React.FC = () => {
               {filteredLogs.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-6 text-center text-zinc-500">
-                    No egg harvest records match your filter.
+                    0 egg harvest records. Click "Log Daily Harvest" to start logging from 0.
                   </td>
                 </tr>
               ) : (
@@ -366,10 +447,20 @@ export const FlockEggLogView: React.FC = () => {
       {isPenModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl p-5 shadow-2xl text-zinc-100">
-            <h3 className="text-base font-bold text-white mb-3 flex items-center gap-2">
-              <Bird className="w-5 h-5 text-emerald-400" />
-              <span>Add New Breeding Pen / Flock</span>
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Bird className="w-5 h-5 text-emerald-400" />
+                <span>Add New Breeding Pen / Flock</span>
+              </h3>
+              <button
+                type="button"
+                onClick={handleResetPenFormToZero}
+                className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-[11px] font-semibold flex items-center gap-1 cursor-pointer border border-zinc-700"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset to 0</span>
+              </button>
+            </div>
             <form onSubmit={handleCreatePen} className="space-y-3 text-xs">
               <div>
                 <label className="text-zinc-300 font-semibold block mb-1">Pen Name / Code</label>
@@ -400,10 +491,10 @@ export const FlockEggLogView: React.FC = () => {
                   <label className="text-zinc-300 font-semibold block mb-1">Active Hens Count</label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
                     required
                     value={hensCount}
-                    onChange={(e) => setHensCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) => setHensCount(Math.max(0, parseInt(e.target.value) || 0))}
                     className="w-full px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white font-bold"
                   />
                 </div>
@@ -411,10 +502,10 @@ export const FlockEggLogView: React.FC = () => {
                   <label className="text-zinc-300 font-semibold block mb-1">Roosters Count</label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
                     required
                     value={roostersCount}
-                    onChange={(e) => setRoostersCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) => setRoostersCount(Math.max(0, parseInt(e.target.value) || 0))}
                     className="w-full px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white font-bold"
                   />
                 </div>
@@ -448,13 +539,13 @@ export const FlockEggLogView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsPenModalOpen(false)}
-                  className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded-lg font-medium"
+                  className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded-lg font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer"
                 >
                   Save Pen
                 </button>
@@ -468,10 +559,20 @@ export const FlockEggLogView: React.FC = () => {
       {isLogModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="w-full max-w-lg bg-zinc-900 border border-zinc-700 rounded-2xl p-5 shadow-2xl text-zinc-100 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-base font-bold text-white mb-3 flex items-center gap-2">
-              <Egg className="w-5 h-5 text-amber-400" />
-              <span>Log Daily Egg Harvest</span>
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Egg className="w-5 h-5 text-amber-400" />
+                <span>Log Daily Egg Harvest</span>
+              </h3>
+              <button
+                type="button"
+                onClick={handleResetLogFormToZero}
+                className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-[11px] font-semibold flex items-center gap-1 cursor-pointer border border-zinc-700"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Inputs to 0</span>
+              </button>
+            </div>
 
             <form onSubmit={handleCreateLog} className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-2">
@@ -602,13 +703,13 @@ export const FlockEggLogView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsLogModalOpen(false)}
-                  className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded-lg font-medium"
+                  className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded-lg font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow cursor-pointer"
                 >
                   Save Record
                 </button>

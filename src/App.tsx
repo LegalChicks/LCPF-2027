@@ -6,11 +6,13 @@ import {
   Cpu,
   ShoppingBag,
   DollarSign,
+  Settings,
   Plus,
   Sun,
   Moon,
   WifiOff,
   Sparkles,
+  RotateCcw,
 } from 'lucide-react';
 import { NetworkSyncBar } from './components/NetworkSyncBar.tsx';
 import { SyncModal } from './components/SyncModal.tsx';
@@ -21,6 +23,7 @@ import { IncubatorManagerView } from './components/IncubatorManagerView.tsx';
 import { FeedMillView } from './components/FeedMillView.tsx';
 import { OrdersCrmView } from './components/OrdersCrmView.tsx';
 import { FinanceView } from './components/FinanceView.tsx';
+import { SettingsView } from './components/SettingsView.tsx';
 import {
   isEffectivelyOnline,
   getSimulatedOffline,
@@ -28,7 +31,7 @@ import {
   subscribeToStorage,
 } from './services/storage.ts';
 
-type ActiveTab = 'dashboard' | 'flock' | 'incubator' | 'feed' | 'orders' | 'finance';
+type ActiveTab = 'dashboard' | 'flock' | 'incubator' | 'feed' | 'orders' | 'finance' | 'settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -63,6 +66,7 @@ export default function App() {
     { id: 'feed' as const, label: 'Feed Mill', icon: Cpu },
     { id: 'orders' as const, label: 'Egg Orders', icon: ShoppingBag },
     { id: 'finance' as const, label: 'Finance & P&L', icon: DollarSign },
+    { id: 'settings' as const, label: 'Settings & Reset', icon: Settings },
   ];
 
   return (
@@ -77,6 +81,7 @@ export default function App() {
       <NetworkSyncBar
         onOpenSyncModal={() => setIsSyncModalOpen(true)}
         onOpenQuickAction={() => setIsQuickActionOpen(true)}
+        onOpenSettings={() => setActiveTab('settings')}
       />
 
       {/* Secondary Subheader / Navigation Bar */}
@@ -85,7 +90,7 @@ export default function App() {
           <div className="flex items-center justify-between">
             
             {/* Desktop Navigation Tabs */}
-            <nav className="flex space-x-1 sm:space-x-2 overflow-x-auto py-2.5 no-scrollbar" aria-label="Main Navigation">
+            <nav className="flex space-x-1 sm:space-x-1.5 overflow-x-auto py-2.5 no-scrollbar" aria-label="Main Navigation">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
@@ -93,7 +98,7 @@ export default function App() {
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer whitespace-nowrap ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer whitespace-nowrap ${
                       isActive
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/40'
                         : isSunlightMode
@@ -108,8 +113,17 @@ export default function App() {
               })}
             </nav>
 
-            {/* Sunlight Mode & Quick Log Trigger */}
+            {/* Quick Start From 0 & Sunlight Mode Toggle */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 pl-2">
+              <button
+                onClick={() => setActiveTab('settings')}
+                className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-[11px] font-bold transition cursor-pointer"
+                title="Go to Settings & Reset Center to start from 0"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Start from 0</span>
+              </button>
+
               <button
                 onClick={() => setIsSunlightMode(!isSunlightMode)}
                 className={`p-1.5 rounded-lg border text-xs font-medium transition cursor-pointer flex items-center gap-1 ${
@@ -144,6 +158,7 @@ export default function App() {
         {activeTab === 'feed' && <FeedMillView />}
         {activeTab === 'orders' && <OrdersCrmView />}
         {activeTab === 'finance' && <FinanceView />}
+        {activeTab === 'settings' && <SettingsView />}
       </main>
 
       {/* Floating Action Button (FAB) for One-Handed Coop Logging */}
@@ -170,12 +185,12 @@ export default function App() {
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center py-1 px-1.5 rounded-lg transition ${
+              className={`flex flex-col items-center py-1 px-1 rounded-lg transition ${
                 isActive ? 'text-amber-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <Icon className="w-4 h-4 mb-0.5" />
-              <span className="truncate max-w-[55px]">{item.label.split(' ')[0]}</span>
+              <span className="truncate max-w-[46px]">{item.label.split(' ')[0]}</span>
             </button>
           );
         })}

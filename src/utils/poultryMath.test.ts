@@ -85,21 +85,25 @@ test('calculateBulkEggPrice applies tiered discounts', () => {
   assert.equal(tier100.totalAmountPhp, 6630);
 });
 
-test('calculatePelletBatchCost handles raw ingredients deduction and cost per kg', () => {
+test('calculatePelletBatchCost handles chosen ingredients, custom measurements, cost per kg, and Crude Protein %', () => {
   const ingredients = [
-    { ingredientId: '1', name: 'Yellow Corn', kgUsed: 45, unitCostPhp: 26 }, // 1170
-    { ingredientId: '2', name: 'Rice Bran D1', kgUsed: 30, unitCostPhp: 16 }, // 480
-    { ingredientId: '3', name: 'Azolla Dried', kgUsed: 10, unitCostPhp: 12 }, // 120
-    { ingredientId: '4', name: 'Molasses', kgUsed: 5, unitCostPhp: 35 },     // 175
-    { ingredientId: '5', name: 'Premix', kgUsed: 10, unitCostPhp: 140 },      // 1400
+    { ingredientId: '1', name: 'Yellow Corn', kgUsed: 45, unitCostPhp: 26, crudeProteinPercent: 8.8 }, // 1170 PHP, 3.96 kg CP
+    { ingredientId: '2', name: 'Rice Bran D1', kgUsed: 30, unitCostPhp: 16, crudeProteinPercent: 12.5 }, // 480 PHP, 3.75 kg CP
+    { ingredientId: '3', name: 'Azolla Dried', kgUsed: 10, unitCostPhp: 12, crudeProteinPercent: 25.0 }, // 120 PHP, 2.50 kg CP
+    { ingredientId: '4', name: 'Molasses', kgUsed: 5, unitCostPhp: 35, crudeProteinPercent: 3.2 }, // 175 PHP, 0.16 kg CP
+    { ingredientId: '5', name: 'Premix', kgUsed: 10, unitCostPhp: 140, crudeProteinPercent: 38.0 }, // 1400 PHP, 3.80 kg CP
+    { ingredientId: '6', name: 'Unchosen Copra', kgUsed: 0, unitCostPhp: 22, crudeProteinPercent: 21.0 }, // Ignored (0 kg)
   ];
   // Total kg: 100 kg
   // Total cost: 1170 + 480 + 120 + 175 + 1400 = 3345
   // Cost per kg: ₱33.45
+  // Total CP kg: 3.96 + 3.75 + 2.50 + 0.16 + 3.80 = 14.17 kg -> 14.17% CP
   const result = calculatePelletBatchCost(ingredients);
   assert.equal(result.totalKgProduced, 100);
   assert.equal(result.totalBatchCostPhp, 3345);
   assert.equal(result.costPerKgPhp, 33.45);
+  assert.equal(result.crudeProteinPercent, 14.17);
+  assert.equal(result.totalCrudeProteinKg, 14.17);
 });
 
 test('formatPhp formats Philippine Peso', () => {

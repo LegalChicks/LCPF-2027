@@ -68,6 +68,7 @@ export interface FeedIngredient extends BaseRecord {
   stockKg: number;
   unitCostPhp: number; // Cost per kg in PHP
   reorderLevelKg: number;
+  crudeProteinPercent?: number; // Crude Protein (CP %) of the raw ingredient
   category: 'Grain' | 'By-Product' | 'Forage/Protein' | 'Mineral/Vitamin' | 'Binder';
 }
 
@@ -79,11 +80,13 @@ export interface PelletBatchLog extends BaseRecord {
   totalKgProduced: number;
   costPerKgPhp: number;
   totalBatchCostPhp: number;
+  crudeProteinPercent?: number; // Auto-calculated weighted Crude Protein % of the formula
   ingredientsUsed: {
     ingredientId: string;
     ingredientName: string;
     kgUsed: number;
     costPhp: number;
+    crudeProteinPercent?: number;
   }[];
   operator: string;
   notes?: string;
@@ -138,7 +141,7 @@ export interface FinanceTransaction extends BaseRecord {
 export interface SyncLogEvent {
   id: string;
   timestamp: string;
-  type: 'auto_sync' | 'manual_sync' | 'export_backup' | 'import_backup';
+  type: 'auto_sync' | 'manual_sync' | 'export_backup' | 'import_backup' | 'system_reset';
   status: 'success' | 'failed' | 'pending';
   recordsAffected: number;
   details: string;
@@ -150,9 +153,23 @@ export interface FarmAppSettings {
   currency: string;
   timezone: string;
   ownerContact: string;
+  gcashAccountName: string;
+  defaultOperator: string;
+  defaultIncubatorName: string;
   webhookUrl: string;
   autoSyncIntervalMinutes: number;
   lowStockThresholdKg: number;
   defaultRirEggPrice: number;
   defaultAustralorpEggPrice: number;
+  defaultDocPrice: number;
+  defaultPulletPrice?: number;
+  defaultTableEggPrice: number;
+  bulkDiscountTier30: number;
+  bulkDiscountTier60: number;
+  bulkDiscountTier100: number;
+  packagingFeeSmall: number;
+  packagingFeeMedium: number;
+  packagingFeeLarge: number;
+  startInputsFromZero: boolean;
 }
+

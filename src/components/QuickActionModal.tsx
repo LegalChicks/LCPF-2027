@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Egg,
-  HeartPulse,
   ShoppingBag,
   Cpu,
-  Plus,
-  Check,
   Zap,
+  RotateCcw,
 } from 'lucide-react';
 import {
   pensTable,
@@ -15,6 +13,7 @@ import {
   ordersTable,
   pelletLogsTable,
   feedIngredientsTable,
+  getFarmSettings,
 } from '../services/storage.ts';
 import {
   calculateLayingRate,
@@ -35,39 +34,75 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const [mode, setMode] = useState<'egg' | 'mortality' | 'order' | 'feed'>('egg');
+  const settings = getFarmSettings();
+  const [mode, setMode] = useState<'egg' | 'order' | 'feed'>('egg');
   const pens = pensTable.getAll();
 
-  // Egg form state
+  // Egg form state (starts from 0 when startInputsFromZero is enabled)
   const [selectedPenId, setSelectedPenId] = useState(pens[0]?.id || '');
-  const [fertileCount, setFertileCount] = useState<number>(30);
-  const [tableCount, setTableCount] = useState<number>(5);
-  const [rejectsCount, setRejectsCount] = useState<number>(1);
-  const [supplements, setSupplements] = useState('Electrolytes + Garlic Probiotics');
+  const [fertileCount, setFertileCount] = useState<number>(settings.startInputsFromZero ? 0 : 30);
+  const [tableCount, setTableCount] = useState<number>(settings.startInputsFromZero ? 0 : 5);
+  const [rejectsCount, setRejectsCount] = useState<number>(0);
+  const [supplements, setSupplements] = useState('');
 
   // Mortality state
   const [mortalityHens, setMortalityHens] = useState<number>(0);
   const [mortalityRoosters, setMortalityRoosters] = useState<number>(0);
-  const [mortalityNotes, setMortalityNotes] = useState('');
 
   // Order state
   const [customerName, setCustomerName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
-  const [location, setLocation] = useState('Centro Solana, Cagayan');
+  const [location, setLocation] = useState(settings.location.split(',')[0] || 'Centro Solana, Cagayan');
   const [orderBreed, setOrderBreed] = useState<PoultryBreed>('Rhode Island Red');
-  const [orderQuantity, setOrderQuantity] = useState<number>(60);
+  const [orderQuantity, setOrderQuantity] = useState<number>(settings.startInputsFromZero ? 0 : 60);
   const [paymentMethod, setPaymentMethod] = useState<'GCash' | 'Cash on Pickup'>('GCash');
 
   // Feed quick run state
-  const [feedBatchKg, setFeedBatchKg] = useState<number>(50);
+  const [feedBatchKg, setFeedBatchKg] = useState<number>(settings.startInputsFromZero ? 0 : 50);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      const s = getFarmSettings();
+      const currentPens = pensTable.getAll();
+      setSelectedPenId(currentPens[0]?.id || '');
+      if (s.startInputsFromZero) {
+        setFertileCount(0);
+        setTableCount(0);
+        setRejectsCount(0);
+        setMortalityHens(0);
+        setMortalityRoosters(0);
+        setOrderQuantity(0);
+        setFeedBatchKg(0);
+      }
+      setErrorMsg(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const currentPen = pens.find((p) => p.id === selectedPenId) || pens[0];
 
+  const handleResetInputsToZero = () => {
+    setFertileCount(0);
+    setTableCount(0);
+    setRejectsCount(0);
+    setMortalityHens(0);
+    setMortalityRoosters(0);
+    setSupplements('');
+    setCustomerName('');
+    setContactNumber('');
+    setOrderQuantity(0);
+    setFeedBatchKg(0);
+    setErrorMsg(null);
+  };
+
   const handleEggSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentPen) return;
+    if (!currentPen) {
+      setErrorMsg('Please add a breeding pen first in Flock & Eggs.');
+      return;
+    }
 
     const totalEggs = Number(fertileCount) + Number(tableCount) + Number(rejectsCount);
     const layingRate = calculateLayingRate(totalEggs, currentPen.hensCount);
@@ -89,7 +124,6 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       notes: `Quick log recorded inside coop. ${totalEggs} eggs collected.`,
     });
 
-    // Update pen counts if mortality occurred
     if (mortalityHens > 0 || mortalityRoosters > 0) {
       pensTable.update(currentPen.id, {
         hensCount: Math.max(0, currentPen.hensCount - mortalityHens),
@@ -101,11 +135,29 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
     onClose();
   };
 
+  const customBasePrice =
+    orderBreed === 'Black Australorp' ? settings.defaultAustralorpEggPrice : settings.defaultRirEggPrice;
+  const pricingPreview = calculateBulkEggPrice(orderBreed, orderQuantity, customBasePrice, {
+    tier30: settings.bulkDiscountTier30,
+    tier60: settings.bulkDiscountTier60,
+    tier100: settings.bulkDiscountTier100,
+  });
+  const boxFee =
+    orderQuantity >= 60
+      ? settings.packagingFeeLarge
+      : orderQuantity >= 30
+      ? settings.packagingFeeMedium
+      : orderQuantity > 0
+      ? settings.packagingFeeSmall
+      : 0;
+
   const handleOrderSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName.trim() || !contactNumber.trim()) return;
+    if (!customerName.trim() || !contactNumber.trim() || orderQuantity <= 0) {
+      setErrorMsg('Please enter customer name, contact number, and a quantity greater than 0.');
+      return;
+    }
 
-    const pricing = calculateBulkEggPrice(orderBreed, orderQuantity);
     const today = new Date().toISOString().split('T')[0];
     const orderNum = `LC-ORD-2026-${Math.floor(100 + Math.random() * 900)}`;
 
@@ -117,11 +169,11 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       breed: orderBreed,
       itemType: 'Fertile Hatching Eggs',
       quantity: orderQuantity,
-      unitBasePricePhp: pricing.unitBasePricePhp,
-      bulkDiscountPercent: pricing.bulkDiscountPercent,
-      discountAmountPhp: pricing.discountAmountPhp,
-      packagingFeePhp: orderQuantity >= 30 ? 50 : 25,
-      totalAmountPhp: pricing.totalAmountPhp + (orderQuantity >= 30 ? 50 : 25),
+      unitBasePricePhp: pricingPreview.unitBasePricePhp,
+      bulkDiscountPercent: pricingPreview.bulkDiscountPercent,
+      discountAmountPhp: pricingPreview.discountAmountPhp,
+      packagingFeePhp: boxFee,
+      totalAmountPhp: pricingPreview.totalAmountPhp + boxFee,
       paymentMethod,
       status: 'Reserved',
       dateReserved: today,
@@ -129,12 +181,16 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       notes: 'Quick order created from mobile action.',
     });
 
-    onSuccess(`Order ${orderNum} created for ${customerName} (${formatPhp(pricing.totalAmountPhp)})`);
+    onSuccess(`Order ${orderNum} created for ${customerName} (${formatPhp(pricingPreview.totalAmountPhp + boxFee)})`);
     onClose();
   };
 
   const handleFeedRunSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (feedBatchKg <= 0) {
+      setErrorMsg('Please enter or select a batch size greater than 0 kg.');
+      return;
+    }
     const ingredients = feedIngredientsTable.getAll();
     const corn = ingredients.find((i) => i.name.toLowerCase().includes('corn'));
     const darak = ingredients.find((i) => i.name.toLowerCase().includes('bran') || i.name.toLowerCase().includes('darak'));
@@ -143,11 +199,10 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
     const premix = ingredients.find((i) => i.name.toLowerCase().includes('premix'));
 
     if (!corn || !darak || !premix) {
-      alert('Missing core feed ingredients in inventory.');
+      setErrorMsg('Missing core feed ingredients in inventory.');
       return;
     }
 
-    // 45% corn, 30% darak, 10% azolla, 5% molasses, 10% premix
     const batchList = [
       { ingredientId: corn.id, name: corn.name, kgUsed: feedBatchKg * 0.45, unitCostPhp: corn.unitCostPhp },
       { ingredientId: darak.id, name: darak.name, kgUsed: feedBatchKg * 0.30, unitCostPhp: darak.unitCostPhp },
@@ -158,7 +213,6 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
     const costResult = calculatePelletBatchCost(batchList);
 
-    // Deduct stock
     for (const item of batchList) {
       const ing = ingredients.find((i) => i.id === item.ingredientId);
       if (ing) {
@@ -185,15 +239,13 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
         kgUsed: b.kgUsed,
         costPhp: b.kgUsed * b.unitCostPhp,
       })),
-      operator: 'Farm Lead (Quick Run)',
+      operator: settings.defaultOperator || 'Farm Lead (Quick Run)',
       notes: `Batch processed via mobile quick-action. Production cost ${formatPhp(costResult.costPerKgPhp)}/kg.`,
     });
 
     onSuccess(`Pelletizer batch ${batchCode} complete: ${feedBatchKg}kg produced at ${formatPhp(costResult.costPerKgPhp)}/kg!`);
     onClose();
   };
-
-  const pricingPreview = calculateBulkEggPrice(orderBreed, orderQuantity);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
@@ -207,22 +259,33 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-white text-base">Quick Coop Action</h3>
-              <p className="text-xs text-emerald-300">One-handed fast logging for field use</p>
+              <p className="text-xs text-emerald-300">One-handed fast logging • Starts at 0</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition cursor-pointer"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleResetInputsToZero}
+              className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-xs font-semibold flex items-center gap-1 border border-amber-500/40 transition cursor-pointer"
+              title="Reset all inputs in this form to 0"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset to 0</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition cursor-pointer"
+              aria-label="Close modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Tab Selector */}
         <div className="grid grid-cols-3 bg-zinc-950 p-2 gap-1 border-b border-zinc-800 text-xs font-semibold">
           <button
-            onClick={() => setMode('egg')}
+            onClick={() => { setMode('egg'); setErrorMsg(null); }}
             className={`py-2 px-1 rounded-lg flex flex-col items-center gap-1 transition cursor-pointer ${
               mode === 'egg'
                 ? 'bg-emerald-800 text-white shadow'
@@ -234,7 +297,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           </button>
 
           <button
-            onClick={() => setMode('order')}
+            onClick={() => { setMode('order'); setErrorMsg(null); }}
             className={`py-2 px-1 rounded-lg flex flex-col items-center gap-1 transition cursor-pointer ${
               mode === 'order'
                 ? 'bg-emerald-800 text-white shadow'
@@ -246,7 +309,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           </button>
 
           <button
-            onClick={() => setMode('feed')}
+            onClick={() => { setMode('feed'); setErrorMsg(null); }}
             className={`py-2 px-1 rounded-lg flex flex-col items-center gap-1 transition cursor-pointer ${
               mode === 'feed'
                 ? 'bg-emerald-800 text-white shadow'
@@ -260,6 +323,12 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
         {/* Body content */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+          {errorMsg && (
+            <div className="p-2.5 rounded-lg bg-red-950/90 border border-red-700 text-red-200 text-xs font-medium">
+              {errorMsg}
+            </div>
+          )}
+
           {mode === 'egg' && (
             <form onSubmit={handleEggSubmit} className="space-y-4">
               <div>
@@ -295,15 +364,22 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                   <div className="flex justify-center gap-1 mt-1.5">
                     <button
                       type="button"
+                      onClick={() => setFertileCount(0)}
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-amber-300 rounded text-[11px] font-bold"
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setFertileCount((c) => Math.max(0, c - 5))}
-                      className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs"
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px]"
                     >
                       -5
                     </button>
                     <button
                       type="button"
                       onClick={() => setFertileCount((c) => c + 5)}
-                      className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs"
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px]"
                     >
                       +5
                     </button>
@@ -324,15 +400,22 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                   <div className="flex justify-center gap-1 mt-1.5">
                     <button
                       type="button"
+                      onClick={() => setTableCount(0)}
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-amber-300 rounded text-[11px] font-bold"
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setTableCount((c) => Math.max(0, c - 1))}
-                      className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs"
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px]"
                     >
                       -1
                     </button>
                     <button
                       type="button"
                       onClick={() => setTableCount((c) => c + 1)}
-                      className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs"
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px]"
                     >
                       +1
                     </button>
@@ -353,15 +436,22 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                   <div className="flex justify-center gap-1 mt-1.5">
                     <button
                       type="button"
+                      onClick={() => setRejectsCount(0)}
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-amber-300 rounded text-[11px] font-bold"
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setRejectsCount((c) => Math.max(0, c - 1))}
-                      className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs"
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px]"
                     >
                       -1
                     </button>
                     <button
                       type="button"
                       onClick={() => setRejectsCount((c) => c + 1)}
-                      className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs"
+                      className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px]"
                     >
                       +1
                     </button>
@@ -477,19 +567,28 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                     onChange={(e) => setOrderBreed(e.target.value as PoultryBreed)}
                     className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-700 rounded-lg text-xs text-white"
                   >
-                    <option value="Rhode Island Red">Rhode Island Red (₱45)</option>
-                    <option value="Black Australorp">Black Australorp (₱65)</option>
+                    <option value="Rhode Island Red">Rhode Island Red ({formatPhp(settings.defaultRirEggPrice)})</option>
+                    <option value="Black Australorp">Black Australorp ({formatPhp(settings.defaultAustralorpEggPrice)})</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-zinc-300 block mb-1">Quantity (pcs)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={orderQuantity}
-                    onChange={(e) => setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-700 rounded-lg text-xs text-white font-bold"
-                  />
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      value={orderQuantity}
+                      onChange={(e) => setOrderQuantity(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-700 rounded-lg text-xs text-white font-bold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setOrderQuantity(0)}
+                      className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-amber-300 rounded-lg text-xs font-bold"
+                    >
+                      0
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -511,7 +610,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                 )}
                 <div className="flex justify-between pt-1 border-t border-amber-900/40 font-bold text-sm text-white">
                   <span>Estimated Total:</span>
-                  <span className="text-amber-400">{formatPhp(pricingPreview.totalAmountPhp + 50)}</span>
+                  <span className="text-amber-400">{formatPhp(pricingPreview.totalAmountPhp + boxFee)}</span>
                 </div>
               </div>
 
@@ -537,8 +636,15 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                 <label className="text-xs font-semibold text-zinc-300 block mb-1">
                   Batch Target Output (kg)
                 </label>
-                <div className="flex gap-2">
-                  {[25, 50, 100, 200].map((kg) => (
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="number"
+                    min="0"
+                    value={feedBatchKg}
+                    onChange={(e) => setFeedBatchKg(Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-32 px-3 py-1.5 bg-zinc-950 border border-zinc-700 rounded-lg text-sm text-white font-bold"
+                  />
+                  {[0, 25, 50, 100, 200].map((kg) => (
                     <button
                       key={kg}
                       type="button"
@@ -558,19 +664,15 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
               <div className="p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-xl space-y-1 text-xs text-emerald-200">
                 <div className="flex justify-between">
                   <span>Corn required:</span>
-                  <span>{feedBatchKg * 0.45} kg</span>
+                  <span>{Math.round(feedBatchKg * 0.45 * 100) / 100} kg</span>
                 </div>
                 <div className="flex justify-between">
                   <span>D1 Darak required:</span>
-                  <span>{feedBatchKg * 0.30} kg</span>
+                  <span>{Math.round(feedBatchKg * 0.30 * 100) / 100} kg</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Azolla required:</span>
-                  <span>{feedBatchKg * 0.10} kg</span>
-                </div>
-                <div className="flex justify-between font-bold text-sm text-white pt-1 border-t border-emerald-800/60">
-                  <span>Estimated Pellet Cost:</span>
-                  <span className="text-amber-400">~₱24.50 / kg</span>
+                  <span>{Math.round(feedBatchKg * 0.10 * 100) / 100} kg</span>
                 </div>
               </div>
 
