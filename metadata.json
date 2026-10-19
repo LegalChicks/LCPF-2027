@@ -1,0 +1,6 @@
+{
+  "name": "Legal Chicks Poultry Farm",
+  "description": "Offline-First Poultry Farm Management PWA for Legal Chicks Poultry Farm in Centro Solana, Cagayan, Philippines (Rhode Island Red, Black Australorp, Hatchery, Feed Mill & Sales).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
